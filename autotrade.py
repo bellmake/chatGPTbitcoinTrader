@@ -2,14 +2,44 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
+def get_fear_and_greed_index():
+    import requests
+    # Fear and Greed Index 데이터 가져오기
+    fng_api_url = "https://api.alternative.me/fng/"
+    params = {
+        'limit': 1,
+        'format': 'json'
+    }
+    try:
+        response = requests.get(fng_api_url, params=params)
+        response.raise_for_status()
+        fng_data = response.json()
+        # Fear and Greed Index 값 추출
+        fng_value = fng_data['data'][0]['value']
+        fng_classification = fng_data['data'][0]['value_classification']
+        fng_timestamp = fng_data['data'][0]['timestamp']
+        return {
+            'value': fng_value,
+            'classification': fng_classification,
+            'timestamp': fng_timestamp
+        }
+    except requests.exceptions.RequestException as e:
+        print("Fear and Greed Index 데이터를 가져오는 중 오류 발생:", e)
+        return None
+
 def ai_trading():
-    # 0. Upbit 클라이언트 초기화
+    # 0. 필요한 라이브러리 임포트
     import pyupbit
     import ta
     from ta.utils import dropna
     import pandas as pd
+    import json
+    import openai
+
     access = os.getenv("UPBIT_ACCESS_KEY")
     secret = os.getenv("UPBIT_SECRET_KEY")
+    openai.api_key = os.getenv("OPENAI_API_KEY")
+
     upbit = pyupbit.Upbit(access, secret)
 
     # 1. 업비트 차트 데이터 가져오기 (60일 일봉)
@@ -49,8 +79,13 @@ def ai_trading():
     # BTC와 KRW에 대한 정보만 필터링
     filtered_balance = [item for item in balance if item['currency'] in ['BTC', 'KRW']]
 
+    # 1-6. Fear and Greed Index 데이터 가져오기
+    fng = get_fear_and_greed_index()
+    if fng is None:
+        print("Fear and Greed Index 데이터를 가져오지 못하여 거래를 중단합니다.")
+        return
+
     # 2. AI에게 데이터 제공하고 판단 받기
-    import json
 
     # 데이터 크기를 줄이기 위해 필요한 열만 선택
     df_daily_selected = df_daily[['open', 'high', 'low', 'close', 'volume', 'RSI', 'MACD', 'MACD_Signal', 'MACD_Hist', 'SMA50', 'SMA200']].tail(60)
@@ -60,26 +95,26 @@ def ai_trading():
         "daily_ohlcv": df_daily_selected.to_dict(),
         "hourly_ohlcv": df_hourly_selected.to_dict(),
         "orderbook": orderbook,
-        "balance": filtered_balance
+        "balance": filtered_balance,
+        "fear_greed_index": fng
     }
 
     data_json = json.dumps(data)
 
-    import openai
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-
-    # 프롬프트 수정: 보조지표 활용하여 수익률을 높일 수 있는 전략 제안
-    prompt = """
+    # 프롬프트 수정: Fear and Greed Index 반영
+    prompt = f"""
     당신은 비트코인 투자 전문가이자 퀀트 트레이더입니다.
-    제공된 데이터 (현재 투자 상태, 호가 데이터, 보조지표가 포함된 60일 일봉 OHLCV, 보조지표가 포함된 100시간 시간봉 OHLCV)를 분석하여,
-    RSI, MACD, 이동평균선 등의 기술적 지표를 기반으로 현재 시점에서 매수, 매도, 보류 중 무엇을 할지 판단해 주세요.
+    제공된 데이터 (현재 투자 상태, 호가 데이터, 보조지표가 포함된 60일 일봉 OHLCV, 보조지표가 포함된 100시간 시간봉 OHLCV, Fear and Greed Index)를 분석하여,
+    RSI, MACD, 이동평균선 등의 기술적 지표와 시장 심리 지표인 Fear and Greed Index를 기반으로 현재 시점에서 매수, 매도, 보류 중 무엇을 할지 판단해 주세요.
     판단 근거를 상세히 설명하고, 수익률을 높일 수 있는 전략을 제시하세요.
     JSON 형식으로 응답하세요.
 
+    현재 Fear and Greed Index 값은 {fng['value']}이며, 이는 '{fng['classification']}' 상태를 나타냅니다.
+
     응답 예시:
-    {"decision":"buy","reason":"RSI가 과매도 영역에서 상승 반전했고, MACD가 골든크로스를 형성하였습니다. 또한 단기 이동평균선이 장기 이동평균선을 상향 돌파하였습니다."}
-    {"decision":"sell","reason":"RSI가 과매수 상태이고, MACD 히스토그램이 감소 추세입니다. 단기 이동평균선이 장기 이동평균선을 하향 돌파하였습니다."}
-    {"decision":"hold","reason":"현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있습니다."}
+    {{"decision":"buy","reason":"RSI가 과매도 영역에서 상승 반전했고, MACD가 골든크로스를 형성하였습니다. 또한 Fear and Greed Index가 '극도의 공포' 상태로 반등 가능성이 있습니다."}}
+    {{"decision":"sell","reason":"RSI가 과매수 상태이고, MACD 히스토그램이 감소 추세입니다. 또한 Fear and Greed Index가 '극도의 탐욕' 상태로 조정이 예상됩니다."}}
+    {{"decision":"hold","reason":"현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있습니다."}}
     """
 
     response = openai.ChatCompletion.create(
@@ -99,7 +134,12 @@ def ai_trading():
     result = response['choices'][0]['message']['content']
 
     # 3. AI의 판단에 따라 실제로 자동매매 진행하기
-    result = json.loads(result)
+    try:
+        result = json.loads(result)
+    except json.JSONDecodeError:
+        print("AI의 응답이 JSON 형식이 아닙니다. 응답 내용:")
+        print(result)
+        return
 
     print("### AI Decision: ", result["decision"].upper(), "###")
     print(f"### Reason: {result['reason']} ###")
@@ -114,10 +154,11 @@ def ai_trading():
     # 매도할 BTC 수량 계산
     btc_to_sell = sell_amount / current_price
 
-    match result["decision"]:
+    match result["decision"].lower():
         case "buy":
             # 매수
-            if buy_amount >= 5000:  # 최소 거래 금액 확인
+            krw_balance = float(upbit.get_balance("KRW"))
+            if krw_balance >= buy_amount:
                 print(upbit.buy_market_order("KRW-BTC", buy_amount))
                 print("buy:", result["reason"])
             else:
