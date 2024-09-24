@@ -1,6 +1,31 @@
 import os
 from dotenv import load_dotenv
+import logging
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.options import Options
+import time
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from PIL import Image
+import io
+import base64
+import pyupbit
+import ta
+from ta.utils import dropna
+import pandas as pd
+import json
+from openai import OpenAI
+import requests
+import json
+
 load_dotenv()
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def get_fear_and_greed_index():
     import requests
@@ -63,18 +88,125 @@ def get_latest_news_headlines():
         print("뉴스 데이터를 가져오는 중 오류 발생:", e)
         return None
 
-def ai_trading():
-    # 필요한 라이브러리 임포트
-    import pyupbit
-    import ta
-    from ta.utils import dropna
-    import pandas as pd
-    import json
-    import openai
+def capture_chart_screenshots():
+    # 크롬 옵션 설정
+    chrome_options = Options()
+    chrome_options.add_argument("--start-maximized")
+    chrome_options.add_argument("--headless") # 디버깅시 주석처리
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
 
+    # 웹 드라이버 실행
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+
+    # 업비트 차트 페이지로 이동
+    url = "https://upbit.com/full_chart?code=CRIX.UPBIT.KRW-BTC"
+    driver.get(url)
+
+    # 페이지 로딩 대기
+    time.sleep(1)
+
+    screenshots = {}
+
+    try:
+        # 30분 옵션 선택 및 스크린샷
+        logger.info("30분 옵션 선택 중...")
+        menu_button_xpath = '/html/body/div[1]/div[2]/div[3]/span/div/div/div[1]/div/div/cq-menu[1]'
+        menu_button = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, menu_button_xpath)))
+        menu_button.click()
+
+        thirty_min_option_xpath = '/html/body/div[1]/div[2]/div[3]/span/div/div/div[1]/div/div/cq-menu[1]/cq-menu-dropdown/cq-item[7]'
+        thirty_min_option = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, thirty_min_option_xpath)))
+        thirty_min_option.click()
+
+        time.sleep(1)
+        screenshot = driver.get_screenshot_as_png()
+        screenshots['30min'] = base64.b64encode(screenshot).decode('utf-8')
+
+        # 스크린샷 이미지를 파일로 저장
+        screenshot_image = Image.open(io.BytesIO(screenshot))
+        thirty_min_screenshot_path = "upbit_btc_full_chart_30min.png"
+        screenshot_image.save(thirty_min_screenshot_path)
+        logger.info("30분 옵션 선택 후 스크린샷이 성공적으로 저장되었습니다: %s", thirty_min_screenshot_path)
+
+        # 1시간 옵션 선택 및 스크린샷
+        logger.info("1시간 옵션 선택 중...")
+        menu_button.click()
+        one_hour_option_xpath = '/html/body/div[1]/div[2]/div[3]/span/div/div/div[1]/div/div/cq-menu[1]/cq-menu-dropdown/cq-item[8]'
+        one_hour_option = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, one_hour_option_xpath)))
+        one_hour_option.click()
+
+        time.sleep(1)
+        screenshot = driver.get_screenshot_as_png()
+        screenshots['1hour'] = base64.b64encode(screenshot).decode('utf-8')
+
+        # 스크린샷 이미지를 파일로 저장
+        screenshot_image = Image.open(io.BytesIO(screenshot))
+        one_hour_screenshot_path = "upbit_btc_full_chart_1hour.png"
+        screenshot_image.save(one_hour_screenshot_path)
+        logger.info("1시간 옵션 선택 후 스크린샷이 성공적으로 저장되었습니다: %s", one_hour_screenshot_path)
+
+        # 볼린저 밴드 옵션 선택 및 스크린샷
+        logger.info("볼린저 밴드 옵션 선택 중...")
+        indicator_menu_xpath = '/html/body/div[1]/div[2]/div[3]/span/div/div/div[1]/div/div/cq-menu[3]'
+        indicator_menu = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, indicator_menu_xpath)))
+        indicator_menu.click()
+
+        bollinger_band_option_xpath = '/html/body/div[1]/div[2]/div[3]/span/div/div/div[1]/div/div/cq-menu[3]/cq-menu-dropdown/cq-scroll/cq-studies/cq-studies-content/cq-item[15]'
+        bollinger_band_option = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, bollinger_band_option_xpath)))
+        bollinger_band_option.click()
+
+        time.sleep(1)
+        screenshot = driver.get_screenshot_as_png()
+        screenshots['bollinger'] = base64.b64encode(screenshot).decode('utf-8')
+
+        # 스크린샷 이미지를 파일로 저장
+        screenshot_image = Image.open(io.BytesIO(screenshot))
+        bollinger_screenshot_path = "upbit_btc_full_chart_bollinger.png"
+        screenshot_image.save(bollinger_screenshot_path)
+        logger.info("볼린저 밴드 옵션 선택 후 스크린샷이 성공적으로 저장되었습니다: %s", bollinger_screenshot_path)
+
+    except Exception as e:
+        logger.error("차트 스크린샷 캡처 중 오류 발생: %s", e)
+
+    # 브라우저 종료
+    driver.quit()
+
+    return screenshots
+
+def analyze_chart_with_gpt4o(screenshots):
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    analysis_results = {}
+
+    for chart_type, base64_image in screenshots.items():
+        prompt = f"이 비트코인 차트는 {chart_type} 설정의 스크린샷입니다. 이 차트를 분석하고, 현재 시장 상황과 향후 단기 트렌드에 대해 설명해주세요. 또한 이 차트를 바탕으로 매수/매도/홀드 중 어떤 행동을 취해야 할지 제안해주세요."
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+                        ]
+                    }
+                ],
+                max_tokens=300
+            )
+            analysis_results[chart_type] = response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"GPT-4o API 요청 중 오류 발생 ({chart_type}): {e}")
+            analysis_results[chart_type] = "분석 실패"
+
+    return analysis_results
+
+def ai_trading():
     access = os.getenv("UPBIT_ACCESS_KEY")
     secret = os.getenv("UPBIT_SECRET_KEY")
-    openai.api_key = os.getenv("OPENAI_API_KEY")
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     upbit = pyupbit.Upbit(access, secret)
 
@@ -121,9 +253,17 @@ def ai_trading():
         print("뉴스 데이터를 가져오지 못하여 거래를 중단합니다.")
         return
 
-    # 데이터 준비
+    # 차트 스크린샷 캡처 및 gpt-4o 분석
+    screenshots = capture_chart_screenshots()
+    chart_analysis = analyze_chart_with_gpt4o(screenshots)
+
+    # 데이터 준비 (index를 string으로 변환하여 JSON 직렬화 가능하게 처리)
     df_daily_selected = df_daily[['open', 'high', 'low', 'close', 'volume', 'RSI', 'MACD', 'MACD_Signal', 'MACD_Hist', 'SMA50', 'SMA200']].tail(60)
     df_hourly_selected = df_hourly[['open', 'high', 'low', 'close', 'volume', 'RSI', 'MACD', 'MACD_Signal', 'MACD_Hist']].tail(100)
+
+    # 여기서 DataFrame의 인덱스를 문자열로 변환하여 직렬화 가능하게 만듭니다.
+    df_daily_selected.index = df_daily_selected.index.astype(str)
+    df_hourly_selected.index = df_hourly_selected.index.astype(str)
 
     data = {
         "daily_ohlcv": df_daily_selected.to_dict(),
@@ -131,16 +271,18 @@ def ai_trading():
         "orderbook": orderbook,
         "balance": filtered_balance,
         "fear_and_greed_index": fng,
-        "news_headlines": news_headlines
+        "news_headlines": news_headlines,
+        "chart_analysis": chart_analysis
     }
 
+    # JSON 직렬화
     data_json = json.dumps(data)
 
-    # 프롬프트 작성
+    # 프롬프트 작성 및 GPT-4o 요청
     prompt = f"""
     당신은 비트코인 투자 전문가이자 퀀트 트레이더입니다.
-    제공된 데이터 (현재 투자 상태, 호가 데이터, 보조지표가 포함된 60일 일봉 OHLCV, 보조지표가 포함된 100시간 시간봉 OHLCV, Fear and Greed Index, 최신 뉴스 헤드라인)를 분석하여,
-    RSI, MACD, 이동평균선 등의 기술적 지표와 시장 심리 지표인 Fear and Greed Index, 그리고 최신 뉴스 헤드라인을 기반으로 현재 시점에서 매수, 매도, 보류 중 무엇을 할지 판단해 주세요.
+    제공된 데이터 (현재 투자 상태, 호가 데이터, 보조지표가 포함된 60일 일봉 OHLCV, 보조지표가 포함된 100시간 시간봉 OHLCV, Fear and Greed Index, 최신 뉴스 헤드라인, gpt-4o의 차트 분석 결과)를 분석하여,
+    RSI, MACD, 이동평균선 등의 기술적 지표와 시장 심리 지표인 Fear and Greed Index, 최신 뉴스 헤드라인, 그리고 gpt-4o의 차트 분석 결과를 종합적으로 고려하여 현재 시점에서 매수, 매도, 보류 중 무엇을 할지 판단해 주세요.
     판단 근거를 상세히 설명하고, 수익률을 높일 수 있는 전략을 제시하세요.
     JSON 형식으로 응답하세요.
 
@@ -149,14 +291,19 @@ def ai_trading():
     최신 뉴스 헤드라인은 다음과 같습니다 (각 뉴스는 'title'과 'date'를 포함합니다):
     {news_headlines}
 
+    gpt-4o의 차트 분석 결과:
+    1시간 차트: {chart_analysis['1hour']}
+    30분 차트: {chart_analysis['30min']}
+    볼린저 밴드: {chart_analysis['bollinger']}
+
     응답 예시:
-    {{"decision":"buy","reason":"RSI가 과매도 영역에서 상승 반전했고, MACD가 골든크로스를 형성하였습니다. 또한 최근 뉴스에서 긍정적인 소식이 전해지고 있고, Fear and Greed Index가 '공포' 상태로 반등 가능성이 있습니다."}}
-    {{"decision":"sell","reason":"RSI가 과매수 상태이고, MACD 히스토그램이 감소 추세입니다. 또한 최근 뉴스에서 부정적인 이슈가 보도되고 있고, Fear and Greed Index가 '탐욕' 상태로 조정이 예상됩니다."}}
-    {{"decision":"hold","reason":"현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있으며, 최근 뉴스에서도 특별한 이슈가 없고, Fear and Greed Index가 중립 상태입니다."}}
+    {{"decision":"buy","reason":"RSI가 과매도 영역에서 상승 반전했고, MACD가 골든크로스를 형성하였습니다. 또한 최근 뉴스에서 긍정적인 소식이 전해지고 있고, Fear and Greed Index가 '공포' 상태로 반등 가능성이 있습니다. gpt-4o의 차트 분석에서도 단기 상승 추세가 예상됩니다."}}
+    {{"decision":"sell","reason":"RSI가 과매수 상태이고, MACD 히스토그램이 감소 추세입니다. 또한 최근 뉴스에서 부정적인 이슈가 보도되고 있고, Fear and Greed Index가 '탐욕' 상태로 조정이 예상됩니다. gpt-4o의 차트 분석에서도 단기 하락 가능성이 언급되었습니다."}}
+    {{"decision":"hold","reason":"현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있으며, 최근 뉴스에서도 특별한 이슈가 없고, Fear and Greed Index가 중립 상태입니다. gpt-4o의 차트 분석에서도 뚜렷한 추세가 보이지 않아 현 포지션 유지가 권장됩니다."}}
     """
 
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
+    response = client.chat.completions.create(
+        model="gpt-4o",
         messages=[
             {
                 "role": "system",
@@ -169,22 +316,40 @@ def ai_trading():
         ]
     )
 
-    result = response['choices'][0]['message']['content']
+    result = response.choices[0].message.content
 
     # AI의 판단에 따라 자동매매 진행
-    try:
-        result_json = json.loads(result)
-    except json.JSONDecodeError:
-        print("AI의 응답이 JSON 형식이 아닙니다. 응답 내용:")
-        print(result)
-        return
+    response_content = response.choices[0].message.content.strip()
 
-    print("### AI Decision: ", result_json["decision"].upper(), "###")
-    print(f"### Reason: {result_json['reason']} ###")
+    # 우선 응답 내용 출력 (디버깅 용도)
+    # print("응답 내용:", response_content)
 
-    # 매수/매도 금액 설정
-    buy_amount = 6000  # 매수 금액 6,000원
-    sell_amount = 6000  # 매도 시 6,000원어치 BTC 판매
+    # '```json'과 '```'을 제거
+    if response_content.startswith("```json") and response_content.endswith("```"):
+        response_content = response_content.replace("```json", "").replace("```", "").strip()
+
+    # 이제 JSON으로 파싱 시도
+    if response_content.startswith("{") and response_content.endswith("}"):
+        try:
+            # JSON 파싱 시도
+            result_json = json.loads(response_content)
+            print("### AI Decision: ", result_json["decision"].upper(), "###")
+            print(f"### Reason: {result_json['reason']} ###")
+        except json.JSONDecodeError as e:
+            print("JSON 파싱 에러 발생:", e)
+            print("AI의 응답이 JSON 형식이 아닙니다. 응답 내용:")
+            print(response_content)
+    else:
+        print("AI 응답이 JSON 형식이 아닙니다. 응답 내용을 수동으로 처리해야 합니다.")
+        print(response_content)
+   
+    # 매수/매도 금액 설정 (real)
+    # buy_amount = 5000  # 매수 금액 5,000원
+    # sell_amount = 5000  # 매도 시 5,000원어치 BTC 판매
+    
+    # 매수/매도 금액 설정 (test)
+    buy_amount = 0
+    sell_amount = 0
 
     # 현재 BTC 가격 가져오기
     current_price = pyupbit.get_current_price("KRW-BTC")
@@ -224,6 +389,7 @@ def ai_trading():
 
     print("\n=== 시간봉 데이터 (최근 5개) ===")
     print(df_hourly_selected.tail())
+
 
 if __name__ == "__main__":
     while True:
