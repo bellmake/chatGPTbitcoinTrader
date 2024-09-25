@@ -20,6 +20,7 @@ import json
 from openai import OpenAI
 import requests
 import json
+from youtube_transcript_api import YouTubeTranscriptApi
 
 load_dotenv()
 
@@ -203,6 +204,19 @@ def analyze_chart_with_gpt4o(screenshots):
 
     return analysis_results
 
+def get_full_transcript(video_id):
+    try:
+        # Get the transcript data
+        transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
+
+        # Extract and concatenate all text items
+        full_transcript = ' '.join(item['text'] for item in transcript_data)
+
+        return full_transcript
+    except Exception as e:
+        logger.error(f"유튜브 자막 가져오기 실패 (video_id: {video_id}): {e}")
+        return None
+
 def ai_trading():
     access = os.getenv("UPBIT_ACCESS_KEY")
     secret = os.getenv("UPBIT_SECRET_KEY")
@@ -265,6 +279,14 @@ def ai_trading():
     df_daily_selected.index = df_daily_selected.index.astype(str)
     df_hourly_selected.index = df_hourly_selected.index.astype(str)
 
+    # YouTube 자막 데이터 가져오기
+    video_ids = ["TWINrTppUl4"]  # 분석하고자 하는 영상의 ID 리스트
+    youtube_transcripts = []
+    for video_id in video_ids:
+        transcript = get_full_transcript(video_id)
+        if transcript:
+            youtube_transcripts.append(transcript)    
+
     data = {
         "daily_ohlcv": df_daily_selected.to_dict(),
         "hourly_ohlcv": df_hourly_selected.to_dict(),
@@ -272,7 +294,8 @@ def ai_trading():
         "balance": filtered_balance,
         "fear_and_greed_index": fng,
         "news_headlines": news_headlines,
-        "chart_analysis": chart_analysis
+        "chart_analysis": chart_analysis,
+        "youtube_transcripts": youtube_transcripts
     }
 
     # JSON 직렬화
@@ -281,8 +304,8 @@ def ai_trading():
     # 프롬프트 작성 및 GPT-4o 요청
     prompt = f"""
     당신은 비트코인 투자 전문가이자 퀀트 트레이더입니다.
-    제공된 데이터 (현재 투자 상태, 호가 데이터, 보조지표가 포함된 60일 일봉 OHLCV, 보조지표가 포함된 100시간 시간봉 OHLCV, Fear and Greed Index, 최신 뉴스 헤드라인, gpt-4o의 차트 분석 결과)를 분석하여,
-    RSI, MACD, 이동평균선 등의 기술적 지표와 시장 심리 지표인 Fear and Greed Index, 최신 뉴스 헤드라인, 그리고 gpt-4o의 차트 분석 결과를 종합적으로 고려하여 현재 시점에서 매수, 매도, 보류 중 무엇을 할지 판단해 주세요.
+    제공된 데이터 (현재 투자 상태, 호가 데이터, 보조지표가 포함된 60일 일봉 OHLCV, 보조지표가 포함된 100시간 시간봉 OHLCV, Fear and Greed Index, 최신 뉴스 헤드라인, gpt-4o의 차트 분석 결과, YouTube 투자 관련 영상의 자막 데이터)를 분석하여,
+    RSI, MACD, 이동평균선 등의 기술적 지표와 시장 심리 지표인 Fear and Greed Index, 최신 뉴스 헤드라인, gpt-4o의 차트 분석 결과, 그리고 YouTube 영상의 자막 내용을 종합적으로 고려하여 현재 시점에서 매수, 매도, 보류 중 무엇을 할지 판단해 주세요.
     판단 근거를 상세히 설명하고, 수익률을 높일 수 있는 전략을 제시하세요.
     JSON 형식으로 응답하세요.
 
@@ -295,11 +318,13 @@ def ai_trading():
     1시간 차트: {chart_analysis['1hour']}
     30분 차트: {chart_analysis['30min']}
     볼린저 밴드: {chart_analysis['bollinger']}
+    
+    YouTube 투자 관련 영상의 자막 데이터도 제공되었습니다. 이 정보를 분석에 활용하세요.
 
     응답 예시:
-    {{"decision":"buy","reason":"RSI가 과매도 영역에서 상승 반전했고, MACD가 골든크로스를 형성하였습니다. 또한 최근 뉴스에서 긍정적인 소식이 전해지고 있고, Fear and Greed Index가 '공포' 상태로 반등 가능성이 있습니다. gpt-4o의 차트 분석에서도 단기 상승 추세가 예상됩니다."}}
-    {{"decision":"sell","reason":"RSI가 과매수 상태이고, MACD 히스토그램이 감소 추세입니다. 또한 최근 뉴스에서 부정적인 이슈가 보도되고 있고, Fear and Greed Index가 '탐욕' 상태로 조정이 예상됩니다. gpt-4o의 차트 분석에서도 단기 하락 가능성이 언급되었습니다."}}
-    {{"decision":"hold","reason":"현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있으며, 최근 뉴스에서도 특별한 이슈가 없고, Fear and Greed Index가 중립 상태입니다. gpt-4o의 차트 분석에서도 뚜렷한 추세가 보이지 않아 현 포지션 유지가 권장됩니다."}}
+    {{"decision":"buy","reason":"RSI가 과매도 영역에서 상승 반전했고, MACD가 골든크로스를 형성하였습니다. 또한 최근 뉴스와 YouTube 영상에서 긍정적인 전망이 제시되고 있고, Fear and Greed Index가 '공포' 상태로 반등 가능성이 있습니다. gpt-4o의 차트 분석에서도 단기 상승 추세가 예상됩니다."}}
+    {{"decision":"sell","reason":"RSI가 과매수 상태이고, MACD 히스토그램이 감소 추세입니다. 또한 최근 뉴스와 YouTube 영상에서 부정적인 이슈가 언급되고 있고, Fear and Greed Index가 '탐욕' 상태로 조정이 예상됩니다. gpt-4o의 차트 분석에서도 단기 하락 가능성이 언급되었습니다."}}
+    {{"decision":"hold","reason":"현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있으며, 최근 뉴스와 YouTube 영상에서도 상반된 의견이 제시되고 있습니다. Fear and Greed Index가 중립 상태이며, gpt-4o의 차트 분석에서도 뚜렷한 추세가 보이지 않아 현 포지션 유지가 권장됩니다."}}
     """
 
     response = client.chat.completions.create(
