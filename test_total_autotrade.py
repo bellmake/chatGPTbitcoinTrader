@@ -308,6 +308,7 @@ def ai_trading():
     당신은 비트코인 투자 전문가이자 퀀트 트레이더입니다.
     제공된 데이터 (현재 투자 상태, 호가 데이터, 보조지표가 포함된 60일 일봉 OHLCV, 보조지표가 포함된 100시간 시간봉 OHLCV, Fear and Greed Index, 최신 뉴스 헤드라인, gpt-4o의 차트 분석 결과, YouTube 투자 관련 영상의 자막 데이터)를 분석하여,
     RSI, MACD, 이동평균선 등의 기술적 지표와 시장 심리 지표인 Fear and Greed Index, 최신 뉴스 헤드라인, gpt-4o의 차트 분석 결과, 그리고 YouTube 영상의 자막 내용을 종합적으로 고려하여 현재 시점에서 매수, 매도, 보류 중 무엇을 할지 판단해 주세요.
+    매수 또는 매도 결정을 내릴 경우, 보유한 KRW 중 몇 퍼센트를 매수할지 또는 보유한 BTC 중 몇 퍼센트를 매도할지 `percentage` 필드에 명시해 주세요. (0에서 100 사이의 정수)
     판단 근거를 상세히 설명하고, 수익률을 높일 수 있는 전략을 제시하세요.
     JSON 형식으로 응답하되, 반드시 한국어로 작성해 주세요.
 
@@ -320,58 +321,15 @@ def ai_trading():
     1시간 차트: {chart_analysis['1hour']}
     30분 차트: {chart_analysis['30min']}
     볼린저 밴드: {chart_analysis['bollinger']}
-    
+
     YouTube 투자 관련 영상의 자막 데이터도 제공되었습니다. 이 정보를 분석에 활용하세요.
 
     응답 예시:
-    {{"decision":"buy","reason":"RSI가 과매도 영역에서 상승 반전했고, MACD가 골든크로스를 형성하였습니다. 또한 최근 뉴스와 YouTube 영상에서 긍정적인 전망이 제시되고 있고, Fear and Greed Index가 '공포' 상태로 반등 가능성이 있습니다. gpt-4o의 차트 분석에서도 단기 상승 추세가 예상됩니다."}}
-    {{"decision":"sell","reason":"RSI가 과매수 상태이고, MACD 히스토그램이 감소 추세입니다. 또한 최근 뉴스와 YouTube 영상에서 부정적인 이슈가 언급되고 있고, Fear and Greed Index가 '탐욕' 상태로 조정이 예상됩니다. gpt-4o의 차트 분석에서도 단기 하락 가능성이 언급되었습니다."}}
-    {{"decision":"hold","reason":"현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있으며, 최근 뉴스와 YouTube 영상에서도 상반된 의견이 제시되고 있습니다. Fear and Greed Index가 중립 상태이며, gpt-4o의 차트 분석에서도 뚜렷한 추세가 보이지 않아 현 포지션 유지가 권장됩니다."}}
+    {{"decision":"buy","percentage":10,"reason":"RSI가 과매도 영역에서 상승 반전했고, MACD가 골든크로스를 형성하였습니다. 또한 최근 뉴스와 YouTube 영상에서 긍정적인 전망이 제시되고 있고, Fear and Greed Index가 '공포' 상태로 반등 가능성이 있습니다. gpt-4o의 차트 분석에서도 단기 상승 추세가 예상됩니다."}}
+    {{"decision":"sell","percentage":20,"reason":"RSI가 과매수 상태이고, MACD 히스토그램이 감소 추세입니다. 또한 최근 뉴스와 YouTube 영상에서 부정적인 이슈가 언급되고 있고, Fear and Greed Index가 '탐욕' 상태로 조정이 예상됩니다. gpt-4o의 차트 분석에서도 단기 하락 가능성이 언급되었습니다."}}
+    {{"decision":"hold","percentage":0,"reason":"현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있으며, 최근 뉴스와 YouTube 영상에서도 상반된 의견이 제시되고 있습니다. Fear and Greed Index가 중립 상태이며, gpt-4o의 차트 분석에서도 뚜렷한 추세가 보이지 않아 현 포지션 유지가 권장됩니다."}}
     """
 
-# ##### 최신 response_format 사용 강제하기 전 수동으로 json 형식 아닌 부분 처리 코드
-#     response = client.chat.completions.create(
-#         model="gpt-4o-2024-08-06",
-#         messages=[
-#             {
-#                 "role": "system",
-#                 "content": prompt
-#             },
-#             {
-#                 "role": "user",
-#                 "content": data_json
-#             }
-#         ],
-#         max_tokens=4095
-#     )
-
-#     result = response.choices[0].message.content
-
-#     # AI의 판단에 따라 자동매매 진행
-#     response_content = response.choices[0].message.content.strip()
-
-#     # 우선 응답 내용 출력 (디버깅 용도)
-#     # print("응답 내용:", response_content)
-
-#     # '```json'과 '```'을 제거
-#     if response_content.startswith("```json") and response_content.endswith("```"):
-#         response_content = response_content.replace("```json", "").replace("```", "").strip()
-
-#     # 이제 JSON으로 파싱 시도
-#     if response_content.startswith("{") and response_content.endswith("}"):
-#         try:
-#             # JSON 파싱 시도
-#             result_json = json.loads(response_content)
-#             print("### AI Decision: ", result_json["decision"].upper(), "###")
-#             print(f"### Reason: {result_json['reason']} ###")
-#         except json.JSONDecodeError as e:
-#             print("JSON 파싱 에러 발생:", e)
-#             print("AI의 응답이 JSON 형식이 아닙니다. 응답 내용:")
-#             print(response_content)
-#     else:
-#         print("AI 응답이 JSON 형식이 아닙니다. 응답 내용을 수동으로 처리해야 합니다.")
-#         print(response_content)
-#    
     try:
         response = client.chat.completions.create(
             model="gpt-4o-2024-08-06",  # 최신 지원 모델명 사용
@@ -394,7 +352,7 @@ def ai_trading():
                 "type": "json_schema",
                 "json_schema": {
                     "name": "TradingDecision",
-                    "description": "Decision to buy, sell, or hold based on analysis",
+                    "description": "Decision to buy, sell, or hold based on analysis, including confidence percentage",
                     "strict": True,
                     "schema": {
                         "type": "object",
@@ -403,11 +361,15 @@ def ai_trading():
                                 "type": "string",
                                 "enum": ["buy", "sell", "hold"]
                             },
+                            "percentage": {
+                                "type": "integer",
+                                "description": "Confidence level of the decision (0-100)"
+                            },
                             "reason": {
                                 "type": "string"
                             }
                         },
-                        "required": ["decision", "reason"],
+                        "required": ["decision", "percentage", "reason"],
                         "additionalProperties": False
                     }
                 }
@@ -417,74 +379,114 @@ def ai_trading():
         response_content = response.choices[0].message.content
         trading_decision = json.loads(response_content)
     
-        if not isinstance(trading_decision, dict) or 'decision' not in trading_decision or 'reason' not in trading_decision:
+        # 필수 필드 확인 및 percentage 유효성 검증
+        required_fields = {"decision", "percentage", "reason"}
+        if not isinstance(trading_decision, dict) or not required_fields.issubset(trading_decision.keys()):
             logger.error("GPT 응답이 예상한 형식이 아닙니다. 기본값으로 설정합니다.")
-            trading_decision = {"decision": "hold", "reason": "분석 실패 - 잘못된 응답 형식"}
+            trading_decision = {"decision": "hold", "percentage": 0, "reason": "분석 실패 - 잘못된 응답 형식"}
+
+        percentage = trading_decision.get("percentage", 0)
+        if not isinstance(percentage, (int, float)) or not (0 <= percentage <= 100):
+            logger.error("GPT 응답의 percentage 값이 유효하지 않습니다. 기본값으로 설정합니다.")
+            trading_decision["percentage"] = 0
 
     except json.JSONDecodeError:
         logger.error("GPT 응답을 JSON으로 파싱할 수 없습니다.")
-        trading_decision = {"decision": "hold", "reason": "분석 실패 - JSON 파싱 오류"}
+        trading_decision = {"decision": "hold", "percentage": 0, "reason": "분석 실패 - JSON 파싱 오류"}
     except RateLimitError as e:
         logger.error(f"GPT-4o API 요청 중 오류 발생: {e}")
-        trading_decision = {"decision": "hold", "reason": "분석 실패 - Rate limit exceeded"}
+        trading_decision = {"decision": "hold", "percentage": 0, "reason": "분석 실패 - Rate limit exceeded"}
     except OpenAIError as e:
         logger.error(f"GPT-4o API 요청 중 오류 발생: {e}")
-        trading_decision = {"decision": "hold", "reason": "분석 실패"}
+        trading_decision = {"decision": "hold", "percentage": 0, "reason": "분석 실패"}
     except Exception as e:
         logger.error(f"예기치 않은 오류 발생: {e}")
-        trading_decision = {"decision": "hold", "reason": "분석 실패"}
+        trading_decision = {"decision": "hold", "percentage": 0, "reason": "분석 실패"}
 
     # AI의 판단에 따라 자동매매 진행
-    print("### AI Decision: ", trading_decision['decision'].upper(), "###")
+    print(f"### Decision: {trading_decision['decision'].upper()} ###")
+    print(f"### Percentage: {trading_decision['percentage']} ###")
     print(f"### Reason: {trading_decision['reason']} ###")
     result_json = trading_decision
-
-    # 매수/매도 금액 설정 (real)
-    # buy_amount = 5000  # 매수 금액 5,000원
-    # sell_amount = 5000  # 매도 시 5,000원어치 BTC 판매
-    
-    # 매수/매도 금액 설정 (test)
-    buy_amount = 0
-    sell_amount = 0
 
     # 현재 BTC 가격 가져오기
     current_price = pyupbit.get_current_price("KRW-BTC")
 
-    # 매도할 BTC 수량 계산
-    btc_to_sell = sell_amount / current_price
-    
-    decision = result_json["decision"].lower()
+    decision = result_json['decision']
     if decision == "buy":
-        # 매수
+        # 매수: 보유한 KRW 중 percentage% 매수
         krw_balance = float(upbit.get_balance("KRW"))
-        if krw_balance >= buy_amount:
-            print(upbit.buy_market_order("KRW-BTC", buy_amount))
-            print("buy:", result_json["reason"])
+        buy_amount = krw_balance * (percentage / 100) * 0.9995  # 수수료 고려
+
+        # 매수 금액이 5,000 KRW 이상인지 확인
+        if buy_amount >= 5000:
+            if krw_balance >= buy_amount:
+                try:
+                    # 실제 매수 주문 실행
+                    # upbit.buy_market_order("KRW-BTC", buy_amount)
+                    
+                    # 매수한 BTC 수량 계산 (현재 가격 기준)
+                    btc_bought = buy_amount / current_price
+
+                    logger.info(f"매수 성공: {buy_amount:.2f} KRW 매수 완료 - {btc_bought:.6f} BTC 매수")
+                    print(f"buy: {result_json['reason']} - {percentage}% 매수 - 매수 금액: {buy_amount:.2f} KRW - 매수된 BTC: {btc_bought:.6f} BTC")
+                except Exception as e:
+                    logger.error(f"매수 주문 중 오류 발생: {e}")
+                    print(f"매수 주문 중 오류 발생: {e}")
+            else:
+                logger.warning("매수할 금액이 부족합니다.")
+                print("매수할 금액이 부족합니다.")
         else:
-            print("매수할 금액이 부족합니다.")
+            logger.warning(f"매수 금액이 최소 5,000 KRW 미만입니다. 매수를 건너뜁니다. (매수 금액: {buy_amount:.2f} KRW)")
+            print(f"매수 금액이 최소 5,000 KRW 미만입니다. 매수를 건너뜁니다. (매수 금액: {buy_amount:.2f} KRW)")
+
     elif decision == "sell":
-        # 매도
+        # 매도: 보유한 BTC 중 percentage% 매도
         btc_balance = float(upbit.get_balance("BTC"))
-        if btc_balance >= btc_to_sell:
-            print(upbit.sell_market_order("KRW-BTC", btc_to_sell))
-            print("sell:", result_json["reason"])
-        elif btc_balance > 0:
-            print(upbit.sell_market_order("KRW-BTC", btc_balance))
-            print("보유한 모든 비트코인을 매도했습니다.")
+        btc_to_sell = btc_balance * (percentage / 100)
+
+        # 매도 금액이 5,000 KRW 이상인지 확인
+        sell_value = btc_to_sell * current_price
+        if sell_value >= 5000:
+            if btc_balance >= btc_to_sell:
+                try:
+                    # 실제 매도 주문 실행
+                    # upbit.sell_market_order("KRW-BTC", btc_to_sell)
+                    
+                    logger.info(f"매도 성공: {btc_to_sell:.6f} BTC 매도 완료 - {sell_value:,.2f} KRW 매도")
+                    print(f"sell: {result_json['reason']} - {percentage}% 매도 - 매도 수량: {btc_to_sell:.6f} BTC - 매도 금액: {sell_value:,.2f} KRW")
+                except Exception as e:
+                    logger.error(f"매도 주문 중 오류 발생: {e}")
+                    print(f"매도 주문 중 오류 발생: {e}")
+            elif btc_balance > 0:
+                # 모든 BTC를 매도하되, 최소 매도 금액을 충족하는지 확인
+                total_sell_value = btc_balance * current_price
+                if total_sell_value >= 5000:
+                    try:
+                        # 실제 매도 주문 실행
+                        # upbit.sell_market_order("KRW-BTC", btc_balance)
+                        
+                        logger.info("매도 성공: 보유한 모든 비트코인을 매도했습니다.")
+                        print("매도: 보유한 모든 비트코인을 매도했습니다. - 매도 금액: {:,.2f} KRW".format(total_sell_value))
+                    except Exception as e:
+                        logger.error(f"매도 주문 중 오류 발생: {e}")
+                        print(f"매도 주문 중 오류 발생: {e}")
+                else:
+                    logger.warning(f"보유한 모든 비트코인의 가치가 최소 5,000 KRW 미만입니다. 매도를 건너뜁니다. (매도 가치: {total_sell_value:,.2f} KRW)")
+                    print(f"보유한 모든 비트코인의 가치가 최소 5,000 KRW 미만입니다. 매도를 건너뜁니다. (매도 가치: {total_sell_value:,.2f} KRW)")
         else:
-            print("매도할 비트코인 보유량이 없습니다.")
+            logger.warning(f"매도 금액이 최소 5,000 KRW 미만입니다. 매도를 건너뜁니다. (매도 금액: {sell_value:,.2f} KRW)")
+            print(f"매도 금액이 최소 5,000 KRW 미만입니다. 매도를 건너뜁니다. (매도 금액: {sell_value:,.2f} KRW)")
+            
     elif decision == "hold":
         # 보류
-        print("hold:", result_json["reason"])
+        logger.info(f"decision(매매 보류): {result_json['reason']}")
+        print("percentage:", result_json['percentage'])
+        print("reason:", result_json['reason'])
     else:
-        print("알 수 없는 결정입니다:", result_json["decision"])
-
-    # 마지막에 일봉 데이터와 시간봉 데이터의 tail() 출력
-    # print("\n=== 일봉 데이터 (최근 5개) ===")
-    # print(df_daily_selected.tail())
-
-    # print("\n=== 시간봉 데이터 (최근 5개) ===")
-    # print(df_hourly_selected.tail())
+        logger.error(f"알 수 없는 결정입니다: {result_json['decision']}")
+        print("percentage:", result_json['percentage'])
+        print("reason(알 수 없는 결정입니다):", result_json['decision'])
 
 if __name__ == "__main__":
     while True:
