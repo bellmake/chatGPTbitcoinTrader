@@ -9,6 +9,7 @@ import time
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import time
 from PIL import Image
 import io
 import base64
@@ -23,12 +24,69 @@ from openai import RateLimitError, OpenAIError
 import requests
 import json
 from youtube_transcript_api import YouTubeTranscriptApi
+import sqlite3 #python 내장 라이브러리
+from datetime import datetime
 
 load_dotenv()
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# 데이터베이스 파일 경로
+DB_PATH = "trading_data.db"
+
+def init_db():
+    """SQLite 데이터베이스와 필요한 테이블을 초기화합니다."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # 거래 결정 테이블 생성
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS trading_decisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        decision TEXT NOT NULL CHECK(decision IN ('buy', 'sell', 'hold')),
+        percentage INTEGER NOT NULL CHECK(percentage BETWEEN 0 AND 100),
+        reason TEXT NOT NULL,
+        btc_balance REAL NOT NULL,
+        krw_balance REAL NOT NULL,
+        btc_avg_buy_price REAL NOT NULL,
+        btc_krw_price REAL NOT NULL
+    )
+    """)
+    
+    # 추가적으로 필요한 테이블이 있다면 여기에 생성
+    
+    conn.commit()
+    conn.close()
+    logger.info("SQLite 데이터베이스가 초기화되었습니다.")
+
+def save_trading_decision(decision_data):
+    """거래 결정을 데이터베이스에 저장합니다."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    INSERT INTO trading_decisions (
+        timestamp, decision, percentage, reason, 
+        btc_balance, krw_balance, btc_avg_buy_price, btc_krw_price
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        decision_data.get("timestamp"),
+        decision_data.get("decision"),
+        decision_data.get("percentage"),
+        decision_data.get("reason"),
+        decision_data.get("btc_balance"),
+        decision_data.get("krw_balance"),
+        decision_data.get("btc_avg_buy_price"),
+        decision_data.get("btc_krw_price")
+    ))
+    
+    conn.commit()
+    conn.close()
+    logger.info("거래 결정이 데이터베이스에 저장되었습니다.")
 
 def get_fear_and_greed_index():
     import requests
@@ -407,11 +465,17 @@ def ai_trading():
         logger.error(f"예기치 않은 오류 발생: {e}")
         trading_decision = {"decision": "hold", "percentage": 0, "reason": "분석 실패"}
 
+    # 거래 전 계정 잔고 조회
+    balances = upbit.get_balances()
+    btc_balance = next((float(balance['balance']) for balance in balances if balance['currency'] == 'BTC'), 0.0)
+    krw_balance = next((float(balance['balance']) for balance in balances if balance['currency'] == 'KRW'), 0.0)
+    btc_avg_buy_price = next((float(balance['avg_buy_price']) for balance in balances if balance['currency'] == 'BTC'), 0.0)
+    
     # 현재 BTC 가격 가져오기
-    current_price = pyupbit.get_current_price("KRW-BTC")
+    btc_krw_price = pyupbit.get_current_price("KRW-BTC") or 0.0
     
     # AI의 판단에 따라 자동매매 진행
-    print(f"### Decision: {trading_decision['decision'].upper()} (현재 BTC 가격 : {current_price:,.0f} KRW) ###")
+    print(f"### Decision: {trading_decision['decision'].upper()} (현재 BTC 가격 : {btc_krw_price:,.0f} KRW) ###")
     print(f"### Percentage: {trading_decision['percentage']} ###")
     print(f"### Reason: {trading_decision['reason']} ###")
     result_json = trading_decision
@@ -430,10 +494,32 @@ def ai_trading():
                     # upbit.buy_market_order("KRW-BTC", buy_amount)
                     
                     # 매수한 BTC 수량 계산 (현재 가격 기준)
-                    btc_bought = buy_amount / current_price
+                    btc_bought = buy_amount / btc_krw_price
 
                     logger.info(f"매수 성공: {buy_amount:.2f} KRW 매수 완료 - {btc_bought:.6f} BTC 매수")
                     print(f"buy: {result_json['reason']} - {percentage}% 매수 - 매수 금액: {buy_amount:.2f} KRW - 매수된 BTC: {btc_bought:.6f} BTC")
+
+                    # 매수 후 최신 잔고 정보 가져오기
+                    updated_balances = upbit.get_balances()
+                    updated_btc_balance = next((float(balance['balance']) for balance in updated_balances if balance['currency'] == 'BTC'), 0.0)
+                    updated_krw_balance = next((float(balance['balance']) for balance in updated_balances if balance['currency'] == 'KRW'), 0.0)
+                    updated_btc_avg_buy_price = next((float(balance['avg_buy_price']) for balance in updated_balances if balance['currency'] == 'BTC'), 0.0)
+
+                    # 거래 결정 데이터를 데이터베이스에 저장할 준비
+                    decision_data = {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "decision": "buy",
+                        "percentage": percentage,
+                        "reason": result_json['reason'],
+                        "btc_balance": updated_btc_balance,
+                        "krw_balance": updated_krw_balance,
+                        "btc_avg_buy_price": updated_btc_avg_buy_price,
+                        "btc_krw_price": btc_krw_price
+                    }
+
+                    # 데이터베이스에 저장
+                    save_trading_decision(decision_data)
+                    
                 except Exception as e:
                     logger.error(f"매수 주문 중 오류 발생: {e}")
                     print(f"매수 주문 중 오류 발생: {e}")
@@ -450,7 +536,7 @@ def ai_trading():
         btc_to_sell = btc_balance * (percentage / 100)
 
         # 매도 금액이 5,000 KRW 이상인지 확인
-        sell_value = btc_to_sell * current_price
+        sell_value = btc_to_sell * btc_krw_price
         if sell_value >= 5000:
             if btc_balance >= btc_to_sell:
                 try:
@@ -459,12 +545,34 @@ def ai_trading():
                     
                     logger.info(f"매도 성공: {btc_to_sell:.6f} BTC 매도 완료 - {sell_value:,.2f} KRW 매도")
                     print(f"sell: {result_json['reason']} - {percentage}% 매도 - 매도 수량: {btc_to_sell:.6f} BTC - 매도 금액: {sell_value:,.2f} KRW")
+
+                    # 매도 후 최신 잔고 정보 가져오기
+                    updated_balances = upbit.get_balances()
+                    updated_btc_balance = next((float(balance['balance']) for balance in updated_balances if balance['currency'] == 'BTC'), 0.0)
+                    updated_krw_balance = next((float(balance['balance']) for balance in updated_balances if balance['currency'] == 'KRW'), 0.0)
+                    updated_btc_avg_buy_price = next((float(balance['avg_buy_price']) for balance in updated_balances if balance['currency'] == 'BTC'), 0.0)
+
+                    # 거래 결정 데이터를 데이터베이스에 저장할 준비
+                    decision_data = {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "decision": "sell",
+                        "percentage": percentage,
+                        "reason": result_json['reason'],
+                        "btc_balance": updated_btc_balance,
+                        "krw_balance": updated_krw_balance,
+                        "btc_avg_buy_price": updated_btc_avg_buy_price,
+                        "btc_krw_price": btc_krw_price
+                    }
+
+                    # 데이터베이스에 저장
+                    save_trading_decision(decision_data)
+                    
                 except Exception as e:
                     logger.error(f"매도 주문 중 오류 발생: {e}")
                     print(f"매도 주문 중 오류 발생: {e}")
             elif btc_balance > 0:
                 # 모든 BTC를 매도하되, 최소 매도 금액을 충족하는지 확인
-                total_sell_value = btc_balance * current_price
+                total_sell_value = btc_balance * btc_krw_price
                 if total_sell_value >= 5000:
                     try:
                         # 실제 매도 주문 실행
@@ -472,6 +580,28 @@ def ai_trading():
                         
                         logger.info("매도 성공: 보유한 모든 비트코인을 매도했습니다.")
                         print("매도: 보유한 모든 비트코인을 매도했습니다. - 매도 금액: {:,.2f} KRW".format(total_sell_value))
+
+                        # 매도 후 최신 잔고 정보 가져오기
+                        updated_balances = upbit.get_balances()
+                        updated_btc_balance = next((float(balance['balance']) for balance in updated_balances if balance['currency'] == 'BTC'), 0.0)
+                        updated_krw_balance = next((float(balance['balance']) for balance in updated_balances if balance['currency'] == 'KRW'), 0.0)
+                        updated_btc_avg_buy_price = next((float(balance['avg_buy_price']) for balance in updated_balances if balance['currency'] == 'BTC'), 0.0)
+
+                        # 거래 결정 데이터를 데이터베이스에 저장할 준비
+                        decision_data = {
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "decision": "sell",
+                            "percentage": percentage,
+                            "reason": result_json['reason'],
+                            "btc_balance": updated_btc_balance,
+                            "krw_balance": updated_krw_balance,
+                            "btc_avg_buy_price": updated_btc_avg_buy_price,
+                            "btc_krw_price": btc_krw_price
+                        }
+
+                        # 데이터베이스에 저장
+                        save_trading_decision(decision_data)
+                        
                     except Exception as e:
                         logger.error(f"매도 주문 중 오류 발생: {e}")
                         print(f"매도 주문 중 오류 발생: {e}")
@@ -487,13 +617,31 @@ def ai_trading():
         logger.info(f"decision(매매 보류): {result_json['reason']}")
         print("percentage:", result_json['percentage'])
         print("reason:", result_json['reason'])
+
+        # 현재 잔고 정보로 거래 결정 데이터 준비
+        decision_data = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "decision": "hold",
+            "percentage": 0,
+            "reason": result_json['reason'],
+            "btc_balance": btc_balance,
+            "krw_balance": krw_balance,
+            "btc_avg_buy_price": btc_avg_buy_price,
+            "btc_krw_price": btc_krw_price
+        }
+
+        # 데이터베이스에 저장
+        save_trading_decision(decision_data)
+        
     else:
         logger.error(f"알 수 없는 결정입니다: {result_json['decision']}")
         print("percentage:", result_json['percentage'])
         print("reason(알 수 없는 결정입니다):", result_json['decision'])
 
 if __name__ == "__main__":
+    # 데이터베이스 초기화
+    init_db()
+    
     while True:
-        import time
         ai_trading()
         time.sleep(300)  # 5분마다 실행
