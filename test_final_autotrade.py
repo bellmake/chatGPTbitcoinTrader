@@ -329,6 +329,49 @@ def ai_trading():
     {{"decision":"hold","reason":"현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있으며, 최근 뉴스와 YouTube 영상에서도 상반된 의견이 제시되고 있습니다. Fear and Greed Index가 중립 상태이며, gpt-4o의 차트 분석에서도 뚜렷한 추세가 보이지 않아 현 포지션 유지가 권장됩니다."}}
     """
 
+# ##### 최신 response_format 사용 강제하기 전 수동으로 json 형식 아닌 부분 처리 코드
+#     response = client.chat.completions.create(
+#         model="gpt-4o-2024-08-06",
+#         messages=[
+#             {
+#                 "role": "system",
+#                 "content": prompt
+#             },
+#             {
+#                 "role": "user",
+#                 "content": data_json
+#             }
+#         ],
+#         max_tokens=4095
+#     )
+
+#     result = response.choices[0].message.content
+
+#     # AI의 판단에 따라 자동매매 진행
+#     response_content = response.choices[0].message.content.strip()
+
+#     # 우선 응답 내용 출력 (디버깅 용도)
+#     # print("응답 내용:", response_content)
+
+#     # '```json'과 '```'을 제거
+#     if response_content.startswith("```json") and response_content.endswith("```"):
+#         response_content = response_content.replace("```json", "").replace("```", "").strip()
+
+#     # 이제 JSON으로 파싱 시도
+#     if response_content.startswith("{") and response_content.endswith("}"):
+#         try:
+#             # JSON 파싱 시도
+#             result_json = json.loads(response_content)
+#             print("### AI Decision: ", result_json["decision"].upper(), "###")
+#             print(f"### Reason: {result_json['reason']} ###")
+#         except json.JSONDecodeError as e:
+#             print("JSON 파싱 에러 발생:", e)
+#             print("AI의 응답이 JSON 형식이 아닙니다. 응답 내용:")
+#             print(response_content)
+#     else:
+#         print("AI 응답이 JSON 형식이 아닙니다. 응답 내용을 수동으로 처리해야 합니다.")
+#         print(response_content)
+#    
     try:
         response = client.chat.completions.create(
             model="gpt-4o-2024-08-06",  # 최신 지원 모델명 사용
@@ -435,6 +478,13 @@ def ai_trading():
         print("hold:", result_json["reason"])
     else:
         print("알 수 없는 결정입니다:", result_json["decision"])
+
+    # 마지막에 일봉 데이터와 시간봉 데이터의 tail() 출력
+    # print("\n=== 일봉 데이터 (최근 5개) ===")
+    # print(df_daily_selected.tail())
+
+    # print("\n=== 시간봉 데이터 (최근 5개) ===")
+    # print(df_hourly_selected.tail())
 
 if __name__ == "__main__":
     while True:

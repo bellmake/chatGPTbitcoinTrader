@@ -19,9 +19,9 @@ import pandas as pd
 import json
 import openai
 from openai import OpenAI
-from openai import RateLimitError, OpenAIError
+from openai import RateLimitError, OpenAIError  # OpenAI 에러 임포트
+from pydantic import BaseModel, ValidationError  # Pydantic 임포트
 import requests
-import json
 from youtube_transcript_api import YouTubeTranscriptApi
 
 load_dotenv()
@@ -30,9 +30,20 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_fear_and_greed_index():
-    import requests
+# OpenAI 클라이언트 초기화
+openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv(key="OPENAI_API_KEY"))
 
+# Pydantic 모델 정의 (Structured Outputs용)
+class TradingDecision(BaseModel):
+    decision: str  # "buy", "sell", "hold"
+    reason: str
+
+class ChartAnalysisDecision(BaseModel):
+    decision: str  # "buy", "sell", "hold"
+    reason: str
+
+def get_fear_and_greed_index():
     # Fear and Greed Index 데이터 가져오기
     fng_api_url = "https://api.alternative.me/fng/"
     params = {
@@ -53,16 +64,14 @@ def get_fear_and_greed_index():
             'timestamp': fng_timestamp
         }
     except requests.exceptions.RequestException as e:
-        print("Fear and Greed Index 데이터를 가져오는 중 오류 발생:", e)
+        logger.error("Fear and Greed Index 데이터를 가져오는 중 오류 발생: %s", e)
         return None
 
 def get_latest_news_headlines():
-    import requests
-
     # SerpApi를 사용하여 최신 뉴스 헤드라인 가져오기
     serpapi_api_key = os.getenv("SERPAPI_API_KEY")
     if not serpapi_api_key:
-        print("SerpApi API 키가 설정되어 있지 않습니다.")
+        logger.error("SerpApi API 키가 설정되어 있지 않습니다.")
         return None
 
     serpapi_url = "https://serpapi.com/search"
@@ -84,18 +93,18 @@ def get_latest_news_headlines():
                 'title': article.get('title', 'No Title'),
                 'date': article.get('date', 'No Date')
             }
-            for article in news_results[:5]
+            for article in news_results[:3]  # 헤드라인 수 줄이기
         ]
         return headlines
     except requests.exceptions.RequestException as e:
-        print("뉴스 데이터를 가져오는 중 오류 발생:", e)
+        logger.error("뉴스 데이터를 가져오는 중 오류 발생: %s", e)
         return None
 
 def capture_chart_screenshots():
     # 크롬 옵션 설정
     chrome_options = Options()
     chrome_options.add_argument("--start-maximized")
-    chrome_options.add_argument("--headless") # 디버깅시 주석처리
+    chrome_options.add_argument("--headless")  # 디버깅시 주석처리
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
 
@@ -107,7 +116,7 @@ def capture_chart_screenshots():
     driver.get(url)
 
     # 페이지 로딩 대기
-    time.sleep(1)
+    time.sleep(3)
 
     screenshots = {}
 
@@ -115,14 +124,14 @@ def capture_chart_screenshots():
         # 30분 옵션 선택 및 스크린샷
         logger.info("30분 옵션 선택 중...")
         menu_button_xpath = '/html/body/div[1]/div[2]/div[3]/span/div/div/div[1]/div/div/cq-menu[1]'
-        menu_button = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, menu_button_xpath)))
+        menu_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, menu_button_xpath)))
         menu_button.click()
 
         thirty_min_option_xpath = '/html/body/div[1]/div[2]/div[3]/span/div/div/div[1]/div/div/cq-menu[1]/cq-menu-dropdown/cq-item[7]'
-        thirty_min_option = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, thirty_min_option_xpath)))
+        thirty_min_option = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, thirty_min_option_xpath)))
         thirty_min_option.click()
 
-        time.sleep(1)
+        time.sleep(2)
         screenshot = driver.get_screenshot_as_png()
         screenshots['30min'] = base64.b64encode(screenshot).decode('utf-8')
 
@@ -136,10 +145,10 @@ def capture_chart_screenshots():
         logger.info("1시간 옵션 선택 중...")
         menu_button.click()
         one_hour_option_xpath = '/html/body/div[1]/div[2]/div[3]/span/div/div/div[1]/div/div/cq-menu[1]/cq-menu-dropdown/cq-item[8]'
-        one_hour_option = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, one_hour_option_xpath)))
+        one_hour_option = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, one_hour_option_xpath)))
         one_hour_option.click()
 
-        time.sleep(1)
+        time.sleep(2)
         screenshot = driver.get_screenshot_as_png()
         screenshots['1hour'] = base64.b64encode(screenshot).decode('utf-8')
 
@@ -152,14 +161,14 @@ def capture_chart_screenshots():
         # 볼린저 밴드 옵션 선택 및 스크린샷
         logger.info("볼린저 밴드 옵션 선택 중...")
         indicator_menu_xpath = '/html/body/div[1]/div[2]/div[3]/span/div/div/div[1]/div/div/cq-menu[3]'
-        indicator_menu = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, indicator_menu_xpath)))
+        indicator_menu = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, indicator_menu_xpath)))
         indicator_menu.click()
 
         bollinger_band_option_xpath = '/html/body/div[1]/div[2]/div[3]/span/div/div/div[1]/div/div/cq-menu[3]/cq-menu-dropdown/cq-scroll/cq-studies/cq-studies-content/cq-item[15]'
-        bollinger_band_option = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, bollinger_band_option_xpath)))
+        bollinger_band_option = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, bollinger_band_option_xpath)))
         bollinger_band_option.click()
 
-        time.sleep(1)
+        time.sleep(2)
         screenshot = driver.get_screenshot_as_png()
         screenshots['bollinger'] = base64.b64encode(screenshot).decode('utf-8')
 
@@ -177,32 +186,53 @@ def capture_chart_screenshots():
 
     return screenshots
 
-def analyze_chart_with_gpt4o(screenshots):
-    client = OpenAI(api_key=os.getenv(key="OPENAI_API_KEY"))
-
+def analyze_chart_with_gpt4(screenshots):
     analysis_results = {}
 
     for chart_type, base64_image in screenshots.items():
-        prompt = f"이 비트코인 차트는 {chart_type} 설정의 스크린샷입니다. 이 차트를 분석하고, 현재 시장 상황과 향후 단기 트렌드에 대해 설명해주세요. 또한 이 차트를 바탕으로 매수/매도/홀드 중 어떤 행동을 취해야 할지 제안해주세요."
+        prompt = f"이 비트코인 차트는 {chart_type} 설정의 스크린샷입니다. 차트의 주요 추세와 패턴을 간략히 설명하고, 현재 시장 상황과 향후 단기 트렌드에 대해 분석한 후 매수, 매도, 보류 중 어떤 행동을 취해야 하는지 제안해주세요."
+
+        # 이미지 데이터를 텍스트로 포함시키지 않음
+        # 대신, 차트의 주요 특징을 간략히 설명하도록 요청
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-2024-08-06",
+                model="gpt-4o-2024-08-06",  # 최신 지원 모델명 사용
                 messages=[
                     {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
-                        ]
+                        "role": "system",
+                        "content": prompt
                     }
                 ],
-                max_tokens=4095
+                temperature=0.5,
+                max_tokens=500,  # 토큰 수 줄이기
+                top_p=1,
+                frequency_penalty=0,
+                presence_penalty=0
             )
-            analysis_results[chart_type] = response.choices[0].message.content
+
+            # 응답 파싱
+            text_response = response.choices[0].message.content
+            # 간단한 파싱 로직 (예: JSON 형식으로 응답하도록 유도)
+            try:
+                trading_decision = json.loads(text_response)
+                if 'decision' not in trading_decision or 'reason' not in trading_decision:
+                    raise ValueError("Missing keys")
+            except Exception:
+                logger.error(f"GPT 응답 형식 오류 ({chart_type}): {text_response}")
+                trading_decision = {"decision": "hold", "reason": "분석 실패"}
+
+            analysis_results[chart_type] = trading_decision
+
+        except RateLimitError as e:
+            logger.error(f"GPT-4 API 요청 중 오류 발생 ({chart_type}): {e}")
+            analysis_results[chart_type] = {"decision": "hold", "reason": "분석 실패 - Rate limit exceeded"}
+        except OpenAIError as e:
+            logger.error(f"GPT-4 API 요청 중 오류 발생 ({chart_type}): {e}")
+            analysis_results[chart_type] = {"decision": "hold", "reason": "분석 실패"}
         except Exception as e:
-            logger.error(f"GPT-4o API 요청 중 오류 발생 ({chart_type}): {e}")
-            analysis_results[chart_type] = "분석 실패"
+            logger.error(f"GPT-4 API 요청 중 오류 발생 ({chart_type}): {e}")
+            analysis_results[chart_type] = {"decision": "hold", "reason": "분석 실패"}
 
     return analysis_results
 
@@ -214,6 +244,10 @@ def get_full_transcript(video_id):
         # Extract and concatenate all text items
         full_transcript = ' '.join(item['text'] for item in transcript_data)
 
+        # 필요 시 요약 또는 핵심 내용 추출
+        if len(full_transcript) > 2000:  # 예: 2000자 이하로 제한
+            full_transcript = full_transcript[:2000] + "..."
+
         return full_transcript
     except Exception as e:
         logger.error(f"유튜브 자막 가져오기 실패 (video_id: {video_id}): {e}")
@@ -222,7 +256,6 @@ def get_full_transcript(video_id):
 def ai_trading():
     access = os.getenv("UPBIT_ACCESS_KEY")
     secret = os.getenv("UPBIT_SECRET_KEY")
-    client = OpenAI(api_key=os.getenv(key="OPENAI_API_KEY"))
 
     upbit = pyupbit.Upbit(access, secret)
 
@@ -260,38 +293,54 @@ def ai_trading():
     # Fear and Greed Index 데이터 가져오기
     fng = get_fear_and_greed_index()
     if fng is None:
-        print("Fear and Greed Index 데이터를 가져오지 못하여 거래를 중단합니다.")
+        logger.error("Fear and Greed Index 데이터를 가져오지 못하여 거래를 중단합니다.")
         return
 
     # 최신 뉴스 헤드라인 가져오기
     news_headlines = get_latest_news_headlines()
     if news_headlines is None:
-        print("뉴스 데이터를 가져오지 못하여 거래를 중단합니다.")
+        logger.error("뉴스 데이터를 가져오지 못하여 거래를 중단합니다.")
         return
 
-    # 차트 스크린샷 캡처 및 gpt-4o 분석
+    # 차트 스크린샷 캡처 및 gpt-4 분석
     screenshots = capture_chart_screenshots()
-    chart_analysis = analyze_chart_with_gpt4o(screenshots)
+    if not screenshots:
+        logger.error("차트 스크린샷을 캡처하지 못했습니다.")
+        return
 
-    # 데이터 준비 (index를 string으로 변환하여 JSON 직렬화 가능하게 처리)
-    df_daily_selected = df_daily[['open', 'high', 'low', 'close', 'volume', 'RSI', 'MACD', 'MACD_Signal', 'MACD_Hist', 'SMA50', 'SMA200']].tail(60)
-    df_hourly_selected = df_hourly[['open', 'high', 'low', 'close', 'volume', 'RSI', 'MACD', 'MACD_Signal', 'MACD_Hist']].tail(100)
+    chart_analysis = analyze_chart_with_gpt4(screenshots)
+    if not chart_analysis:
+        logger.error("차트 분석 결과가 없습니다.")
+        chart_analysis = {}
 
-    # 여기서 DataFrame의 인덱스를 문자열로 변환하여 직렬화 가능하게 만듭니다.
-    df_daily_selected.index = df_daily_selected.index.astype(str)
-    df_hourly_selected.index = df_hourly_selected.index.astype(str)
+    # 데이터 준비 (필요한 지표만 포함)
+    latest_daily = df_daily.iloc[-1].to_dict()
+    latest_hourly = df_hourly.iloc[-1].to_dict()
 
     # YouTube 자막 데이터 가져오기
-    video_ids = ["tfwT2RgDn5s"]  # 분석하고자 하는 영상의 ID 리스트
+    video_ids = ["TWINrTppUl4"]  # 분석하고자 하는 영상의 ID 리스트
     youtube_transcripts = []
     for video_id in video_ids:
         transcript = get_full_transcript(video_id)
         if transcript:
             youtube_transcripts.append(transcript)    
 
+    # 주요 데이터만 포함하도록 데이터 축소
     data = {
-        "daily_ohlcv": df_daily_selected.to_dict(),
-        "hourly_ohlcv": df_hourly_selected.to_dict(),
+        "latest_daily": {
+            "RSI": latest_daily['RSI'],
+            "MACD": latest_daily['MACD'],
+            "MACD_Signal": latest_daily['MACD_Signal'],
+            "MACD_Hist": latest_daily['MACD_Hist'],
+            "SMA50": latest_daily['SMA50'],
+            "SMA200": latest_daily['SMA200']
+        },
+        "latest_hourly": {
+            "RSI": latest_hourly['RSI'],
+            "MACD": latest_hourly['MACD'],
+            "MACD_Signal": latest_hourly['MACD_Signal'],
+            "MACD_Hist": latest_hourly['MACD_Hist']
+        },
         "orderbook": orderbook,
         "balance": filtered_balance,
         "fear_and_greed_index": fng,
@@ -301,33 +350,32 @@ def ai_trading():
     }
 
     # JSON 직렬화
-    data_json = json.dumps(data)
+    data_json = json.dumps(data, ensure_ascii=False)
 
-    # 프롬프트 작성 및 GPT-4o 요청
+    # 프롬프트 작성 및 GPT-4 요청
     prompt = f"""
-    당신은 비트코인 투자 전문가이자 퀀트 트레이더입니다.
-    제공된 데이터 (현재 투자 상태, 호가 데이터, 보조지표가 포함된 60일 일봉 OHLCV, 보조지표가 포함된 100시간 시간봉 OHLCV, Fear and Greed Index, 최신 뉴스 헤드라인, gpt-4o의 차트 분석 결과, YouTube 투자 관련 영상의 자막 데이터)를 분석하여,
-    RSI, MACD, 이동평균선 등의 기술적 지표와 시장 심리 지표인 Fear and Greed Index, 최신 뉴스 헤드라인, gpt-4o의 차트 분석 결과, 그리고 YouTube 영상의 자막 내용을 종합적으로 고려하여 현재 시점에서 매수, 매도, 보류 중 무엇을 할지 판단해 주세요.
-    판단 근거를 상세히 설명하고, 수익률을 높일 수 있는 전략을 제시하세요.
-    JSON 형식으로 응답하되, 반드시 한국어로 작성해 주세요.
+당신은 비트코인 투자 전문가이자 퀀트 트레이더입니다.
+다음 데이터를 분석하여, RSI, MACD, 이동평균선 등의 기술적 지표와 시장 심리 지표인 Fear and Greed Index, 최신 뉴스 헤드라인, GPT-4의 차트 분석 결과, YouTube 영상의 자막 내용을 종합적으로 고려하여 현재 시점에서 매수, 매도, 보류 중 무엇을 할지 판단해 주세요.
+판단 근거를 상세히 설명하고, 수익률을 높일 수 있는 전략을 제시하세요.
+응답은 JSON 형식으로 아래 예시에 맞춰 작성하세요.
 
-    현재 Fear and Greed Index 값은 {fng['value']}이며, 이는 '{fng['classification']}' 상태를 나타냅니다.
+데이터:
+{data_json}
 
-    최신 뉴스 헤드라인은 다음과 같습니다 (각 뉴스는 'title'과 'date'를 포함합니다):
-    {news_headlines}
-
-    gpt-4o의 차트 분석 결과:
-    1시간 차트: {chart_analysis['1hour']}
-    30분 차트: {chart_analysis['30min']}
-    볼린저 밴드: {chart_analysis['bollinger']}
-    
-    YouTube 투자 관련 영상의 자막 데이터도 제공되었습니다. 이 정보를 분석에 활용하세요.
-
-    응답 예시:
-    {{"decision":"buy","reason":"RSI가 과매도 영역에서 상승 반전했고, MACD가 골든크로스를 형성하였습니다. 또한 최근 뉴스와 YouTube 영상에서 긍정적인 전망이 제시되고 있고, Fear and Greed Index가 '공포' 상태로 반등 가능성이 있습니다. gpt-4o의 차트 분석에서도 단기 상승 추세가 예상됩니다."}}
-    {{"decision":"sell","reason":"RSI가 과매수 상태이고, MACD 히스토그램이 감소 추세입니다. 또한 최근 뉴스와 YouTube 영상에서 부정적인 이슈가 언급되고 있고, Fear and Greed Index가 '탐욕' 상태로 조정이 예상됩니다. gpt-4o의 차트 분석에서도 단기 하락 가능성이 언급되었습니다."}}
-    {{"decision":"hold","reason":"현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있으며, 최근 뉴스와 YouTube 영상에서도 상반된 의견이 제시되고 있습니다. Fear and Greed Index가 중립 상태이며, gpt-4o의 차트 분석에서도 뚜렷한 추세가 보이지 않아 현 포지션 유지가 권장됩니다."}}
-    """
+응답 예시:
+{{
+    "decision": "buy",
+    "reason": "RSI가 과매도 영역에서 상승 반전했고, MACD가 골든크로스를 형성하였습니다. 또한 최근 뉴스와 YouTube 영상에서 긍정적인 전망이 제시되고 있고, Fear and Greed Index가 '공포' 상태로 반등 가능성이 있습니다. GPT-4의 차트 분석에서도 단기 상승 추세가 예상됩니다."
+}}
+{{ 
+    "decision": "sell",
+    "reason": "RSI가 과매수 상태이고, MACD 히스토그램이 감소 추세입니다. 또한 최근 뉴스와 YouTube 영상에서 부정적인 이슈가 언급되고 있고, Fear and Greed Index가 '탐욕' 상태로 조정이 예상됩니다. GPT-4의 차트 분석에서도 단기 하락 가능성이 언급되었습니다."
+}}
+{{ 
+    "decision": "hold",
+    "reason": "현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있으며, 최근 뉴스와 YouTube 영상에서도 상반된 의견이 제시되고 있습니다. Fear and Greed Index가 중립 상태이며, GPT-4의 차트 분석에서도 뚜렷한 추세가 보이지 않아 현 포지션 유지가 권장됩니다."
+}}
+"""
 
     try:
         response = client.chat.completions.create(
@@ -336,108 +384,105 @@ def ai_trading():
                 {
                     "role": "system",
                     "content": prompt
-                },
-                {
-                    "role": "user",
-                    "content": data_json
                 }
             ],
-            temperature=0,
-            max_tokens=4095,
+            temperature=0.5,
+            max_tokens=1000,  # 토큰 수 줄이기
             top_p=1,
             frequency_penalty=0,
-            presence_penalty=0,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "TradingDecision",
-                    "description": "Decision to buy, sell, or hold based on analysis",
-                    "strict": True,
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "decision": {
-                                "type": "string",
-                                "enum": ["buy", "sell", "hold"]
-                            },
-                            "reason": {
-                                "type": "string"
-                            }
-                        },
-                        "required": ["decision", "reason"],
-                        "additionalProperties": False
-                    }
-                }
-            }
+            presence_penalty=0
         )
 
-        response_content = response.choices[0].message.content
-        trading_decision = json.loads(response_content)
-    
-        if not isinstance(trading_decision, dict) or 'decision' not in trading_decision or 'reason' not in trading_decision:
-            logger.error("GPT 응답이 예상한 형식이 아닙니다. 기본값으로 설정합니다.")
-            trading_decision = {"decision": "hold", "reason": "분석 실패 - 잘못된 응답 형식"}
+        # 응답 파싱
+        text_response = response.choices[0].message.content
+        try:
+            trading_decision = json.loads(text_response)
+            if 'decision' not in trading_decision or 'reason' not in trading_decision:
+                raise ValueError("Missing keys")
+        except Exception:
+            logger.error(f"GPT 응답 형식 오류: {text_response}")
+            trading_decision = {"decision": "hold", "reason": "분석 실패"}
 
-    except json.JSONDecodeError:
-        logger.error("GPT 응답을 JSON으로 파싱할 수 없습니다.")
-        trading_decision = {"decision": "hold", "reason": "분석 실패 - JSON 파싱 오류"}
     except RateLimitError as e:
-        logger.error(f"GPT-4o API 요청 중 오류 발생: {e}")
+        logger.error(f"GPT-4 API 요청 중 오류 발생: {e}")
         trading_decision = {"decision": "hold", "reason": "분석 실패 - Rate limit exceeded"}
     except OpenAIError as e:
-        logger.error(f"GPT-4o API 요청 중 오류 발생: {e}")
+        logger.error(f"GPT-4 API 요청 중 오류 발생: {e}")
         trading_decision = {"decision": "hold", "reason": "분석 실패"}
     except Exception as e:
-        logger.error(f"예기치 않은 오류 발생: {e}")
+        logger.error(f"GPT-4 API 요청 중 오류 발생: {e}")
         trading_decision = {"decision": "hold", "reason": "분석 실패"}
 
     # AI의 판단에 따라 자동매매 진행
-    print("### AI Decision: ", trading_decision['decision'].upper(), "###")
-    print(f"### Reason: {trading_decision['reason']} ###")
-    result_json = trading_decision
+    decision = trading_decision.get("decision", "hold").lower()
+    reason = trading_decision.get("reason", "분석 실패")
 
     # 매수/매도 금액 설정 (real)
     # buy_amount = 5000  # 매수 금액 5,000원
     # sell_amount = 5000  # 매도 시 5,000원어치 BTC 판매
-    
+
     # 매수/매도 금액 설정 (test)
     buy_amount = 0
     sell_amount = 0
 
     # 현재 BTC 가격 가져오기
     current_price = pyupbit.get_current_price("KRW-BTC")
+    if not current_price:
+        logger.error("현재 BTC 가격을 가져오지 못했습니다.")
+        return
 
     # 매도할 BTC 수량 계산
-    btc_to_sell = sell_amount / current_price
-    
-    decision = result_json["decision"].lower()
+    btc_to_sell = sell_amount / current_price if sell_amount > 0 else 0
+
     if decision == "buy":
         # 매수
         krw_balance = float(upbit.get_balance("KRW"))
         if krw_balance >= buy_amount:
-            print(upbit.buy_market_order("KRW-BTC", buy_amount))
-            print("buy:", result_json["reason"])
+            upbit.buy_market_order("KRW-BTC", buy_amount)
+            logger.info("BUY: %s", reason)
+            print("BUY:", reason)
         else:
+            logger.warning("매수할 금액이 부족합니다.")
             print("매수할 금액이 부족합니다.")
     elif decision == "sell":
         # 매도
         btc_balance = float(upbit.get_balance("BTC"))
         if btc_balance >= btc_to_sell:
-            print(upbit.sell_market_order("KRW-BTC", btc_to_sell))
-            print("sell:", result_json["reason"])
+            upbit.sell_market_order("KRW-BTC", btc_to_sell)
+            logger.info("SELL: %s", reason)
+            print("SELL:", reason)
         elif btc_balance > 0:
-            print(upbit.sell_market_order("KRW-BTC", btc_balance))
+            upbit.sell_market_order("KRW-BTC", btc_balance)
+            logger.info("보유한 모든 비트코인을 매도했습니다.")
             print("보유한 모든 비트코인을 매도했습니다.")
         else:
+            logger.warning("매도할 비트코인 보유량이 없습니다.")
             print("매도할 비트코인 보유량이 없습니다.")
     elif decision == "hold":
         # 보류
-        print("hold:", result_json["reason"])
+        logger.info("HOLD: %s", reason)
+        print("HOLD:", reason)
     else:
-        print("알 수 없는 결정입니다:", result_json["decision"])
+        logger.error("알 수 없는 결정입니다: %s", decision)
+        print("알 수 없는 결정입니다:", decision)
+
+    # 마지막에 일봉 데이터와 시간봉 데이터의 tail() 출력
+    logger.info("\n=== 일봉 데이터 (최근 5개) ===")
+    logger.info("\n%s", df_daily.tail())
+
+    logger.info("\n=== 시간봉 데이터 (최근 5개) ===")
+    logger.info("\n%s", df_hourly.tail())
+
+    print("\n=== 일봉 데이터 (최근 5개) ===")
+    print(df_daily.tail())
+
+    print("\n=== 시간봉 데이터 (최근 5개) ===")
+    print(df_hourly.tail())
 
 if __name__ == "__main__":
     while True:
-        import time
-        ai_trading()
+        try:
+            ai_trading()
+        except Exception as e:
+            logger.error(f"자동 거래 중 예외 발생: {e}")
         time.sleep(300)  # 5분마다 실행
