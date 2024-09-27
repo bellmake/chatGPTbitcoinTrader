@@ -209,7 +209,7 @@ def analyze_chart_with_gpt4o(screenshots):
 def get_full_transcript(video_id):
     try:
         # Get the transcript data
-        transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
+        transcript_data = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko'])
 
         # Extract and concatenate all text items
         full_transcript = ' '.join(item['text'] for item in transcript_data)
@@ -282,12 +282,15 @@ def ai_trading():
     df_hourly_selected.index = df_hourly_selected.index.astype(str)
 
     # YouTube 자막 데이터 가져오기
-    video_ids = ["tfwT2RgDn5s"]  # 분석하고자 하는 영상의 ID 리스트
+    video_ids = ["3XbtEX3jUv4"]  # 워뇨띠님의 영상 ID
     youtube_transcripts = []
     for video_id in video_ids:
         transcript = get_full_transcript(video_id)
         if transcript:
-            youtube_transcripts.append(transcript)    
+            youtube_transcripts.append(transcript)
+
+    # 워뇨띠님의 매매법을 시스템 메시지에 포함
+    wonyotti_strategy = youtube_transcripts[0] if youtube_transcripts else "워뇨띠님의 매매법 데이터를 가져오지 못했습니다."
 
     data = {
         "daily_ohlcv": df_daily_selected.to_dict(),
@@ -296,20 +299,23 @@ def ai_trading():
         "balance": filtered_balance,
         "fear_and_greed_index": fng,
         "news_headlines": news_headlines,
-        "chart_analysis": chart_analysis,
-        "youtube_transcripts": youtube_transcripts
+        "chart_analysis": chart_analysis
     }
 
     # JSON 직렬화
     data_json = json.dumps(data)
 
     # 프롬프트 작성 및 GPT-4o 요청
-    prompt = f"""
+    system_message = f"""
     당신은 비트코인 투자 전문가이자 퀀트 트레이더입니다.
-    제공된 데이터 (현재 투자 상태, 호가 데이터, 보조지표가 포함된 60일 일봉 OHLCV, 보조지표가 포함된 100시간 시간봉 OHLCV, Fear and Greed Index, 최신 뉴스 헤드라인, gpt-4o의 차트 분석 결과, YouTube 투자 관련 영상의 자막 데이터)를 분석하여,
-    RSI, MACD, 이동평균선 등의 기술적 지표와 시장 심리 지표인 Fear and Greed Index, 최신 뉴스 헤드라인, gpt-4o의 차트 분석 결과, 그리고 YouTube 영상의 자막 내용을 종합적으로 고려하여 현재 시점에서 매수, 매도, 보류 중 무엇을 할지 판단해 주세요.
+    항상 아래의 워뇨띠님의 매매법을 참고하여 현재 상황을 파악하고 매매 결정을 내려야 합니다:
+
+    {wonyotti_strategy}
+
+    제공된 데이터 (현재 투자 상태, 호가 데이터, 보조지표가 포함된 60일 일봉 OHLCV, 보조지표가 포함된 100시간 시간봉 OHLCV, Fear and Greed Index, 최신 뉴스 헤드라인, gpt-4o의 차트 분석 결과)를 분석하여,
+    RSI, MACD, 이동평균선 등의 기술적 지표와 시장 심리 지표인 Fear and Greed Index, 최신 뉴스 헤드라인, gpt-4o의 차트 분석 결과를 종합적으로 고려하되, 반드시 워뇨띠님의 매매법을 기반으로 현재 시점에서 매수, 매도, 보류 중 무엇을 할지 판단해 주세요.
     매수 또는 매도 결정을 내릴 경우, 보유한 KRW 중 몇 퍼센트를 매수할지 또는 보유한 BTC 중 몇 퍼센트를 매도할지 `percentage` 필드에 명시해 주세요. (0에서 100 사이의 정수)
-    판단 근거를 상세히 설명하고, 수익률을 높일 수 있는 전략을 제시하세요.
+    판단 근거를 상세히 설명하고, 수익률을 높일 수 있는 전략을 제시하세요. 특히 워뇨띠님의 매매법과 현재 상황을 어떻게 연관지었는지 설명해주세요.
     JSON 형식으로 응답하되, 반드시 한국어로 작성해 주세요.
 
     현재 Fear and Greed Index 값은 {fng['value']}이며, 이는 '{fng['classification']}' 상태를 나타냅니다.
@@ -322,12 +328,10 @@ def ai_trading():
     30분 차트: {chart_analysis['30min']}
     볼린저 밴드: {chart_analysis['bollinger']}
 
-    YouTube 투자 관련 영상의 자막 데이터도 제공되었습니다. 이 정보를 분석에 활용하세요.
-
     응답 예시:
-    {{"decision":"buy","percentage":10,"reason":"RSI가 과매도 영역에서 상승 반전했고, MACD가 골든크로스를 형성하였습니다. 또한 최근 뉴스와 YouTube 영상에서 긍정적인 전망이 제시되고 있고, Fear and Greed Index가 '공포' 상태로 반등 가능성이 있습니다. gpt-4o의 차트 분석에서도 단기 상승 추세가 예상됩니다."}}
-    {{"decision":"sell","percentage":20,"reason":"RSI가 과매수 상태이고, MACD 히스토그램이 감소 추세입니다. 또한 최근 뉴스와 YouTube 영상에서 부정적인 이슈가 언급되고 있고, Fear and Greed Index가 '탐욕' 상태로 조정이 예상됩니다. gpt-4o의 차트 분석에서도 단기 하락 가능성이 언급되었습니다."}}
-    {{"decision":"hold","percentage":0,"reason":"현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있으며, 최근 뉴스와 YouTube 영상에서도 상반된 의견이 제시되고 있습니다. Fear and Greed Index가 중립 상태이며, gpt-4o의 차트 분석에서도 뚜렷한 추세가 보이지 않아 현 포지션 유지가 권장됩니다."}}
+    {{"decision":"buy","percentage":10,"reason":"워뇨띠님의 매매법에 따르면 [구체적인 설명]. 현재 RSI가 과매도 영역에서 상승 반전했고, MACD가 골든크로스를 형성하였습니다. 또한 최근 뉴스에서 긍정적인 전망이 제시되고 있고, Fear and Greed Index가 '공포' 상태로 반등 가능성이 있습니다. gpt-4o의 차트 분석에서도 단기 상승 추세가 예상됩니다."}}
+    {{"decision":"sell","percentage":20,"reason":"워뇨띠님의 매매법에 따르면 [구체적인 설명]. 현재 RSI가 과매수 상태이고, MACD 히스토그램이 감소 추세입니다. 또한 최근 뉴스에서 부정적인 이슈가 언급되고 있고, Fear and Greed Index가 '탐욕' 상태로 조정이 예상됩니다. gpt-4o의 차트 분석에서도 단기 하락 가능성이 언급되었습니다."}}
+    {{"decision":"hold","percentage":0,"reason":"워뇨띠님의 매매법에 따르면 [구체적인 설명]. 현재 시장 변동성이 높아 관망이 필요합니다. 주요 지표들이 명확한 신호를 제공하지 않고 있으며, 최근 뉴스에서도 상반된 의견이 제시되고 있습니다. Fear and Greed Index가 중립 상태이며, gpt-4o의 차트 분석에서도 뚜렷한 추세가 보이지 않아 현 포지션 유지가 권장됩니다."}}
     """
 
     try:
@@ -336,7 +340,7 @@ def ai_trading():
             messages=[
                 {
                     "role": "system",
-                    "content": prompt
+                    "content": system_message
                 },
                 {
                     "role": "user",
@@ -403,14 +407,14 @@ def ai_trading():
         logger.error(f"예기치 않은 오류 발생: {e}")
         trading_decision = {"decision": "hold", "percentage": 0, "reason": "분석 실패"}
 
+    # 현재 BTC 가격 가져오기
+    current_price = pyupbit.get_current_price("KRW-BTC")
+    
     # AI의 판단에 따라 자동매매 진행
-    print(f"### Decision: {trading_decision['decision'].upper()} ###")
+    print(f"### Decision: {trading_decision['decision'].upper()} (현재 BTC 가격 : {current_price:,.0f} KRW) ###")
     print(f"### Percentage: {trading_decision['percentage']} ###")
     print(f"### Reason: {trading_decision['reason']} ###")
     result_json = trading_decision
-
-    # 현재 BTC 가격 가져오기
-    current_price = pyupbit.get_current_price("KRW-BTC")
 
     decision = result_json['decision']
     if decision == "buy":

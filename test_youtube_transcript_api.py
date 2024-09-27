@@ -2,7 +2,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 
 def get_full_transcript(video_id):
     # Get the transcript data
-    transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
+    transcript_data = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko'])
 
     # Extract and concatenate all text items
     full_transcript = ' '.join(item['text'] for item in transcript_data)
@@ -10,7 +10,7 @@ def get_full_transcript(video_id):
     return full_transcript
 
 # Usage
-video_id = "TWINrTppUl4"
+video_id = "3XbtEX3jUv4"
 transcript_text = get_full_transcript(video_id)
 
 # Print the full transcript
