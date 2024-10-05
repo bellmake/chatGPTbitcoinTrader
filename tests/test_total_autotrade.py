@@ -25,7 +25,7 @@ import requests
 import json
 from youtube_transcript_api import YouTubeTranscriptApi
 import sqlite3 #python 내장 라이브러리
-from datetime import datetime
+from datetime import datetime, timedelta
 
 load_dotenv()
 
@@ -41,9 +41,9 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # 거래 결정 테이블 생성
+    # 거래 결정 테이블 수정 (reflection 컬럼 추가)
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS trading_decisions (
+    CREATE TABLE IF NOT EXISTS trades (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT NOT NULL,
         decision TEXT NOT NULL CHECK(decision IN ('buy', 'sell', 'hold')),
@@ -52,11 +52,10 @@ def init_db():
         btc_balance REAL NOT NULL,
         krw_balance REAL NOT NULL,
         btc_avg_buy_price REAL NOT NULL,
-        btc_krw_price REAL NOT NULL
+        btc_krw_price REAL NOT NULL,
+        reflection TEXT
     )
     """)
-    
-    # 추가적으로 필요한 테이블이 있다면 여기에 생성
     
     conn.commit()
     conn.close()
@@ -68,11 +67,11 @@ def save_trading_decision(decision_data):
     cursor = conn.cursor()
     
     cursor.execute("""
-    INSERT INTO trading_decisions (
+    INSERT INTO trades (
         timestamp, decision, percentage, reason, 
-        btc_balance, krw_balance, btc_avg_buy_price, btc_krw_price
+        btc_balance, krw_balance, btc_avg_buy_price, btc_krw_price, reflection
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         decision_data.get("timestamp"),
         decision_data.get("decision"),
@@ -81,12 +80,79 @@ def save_trading_decision(decision_data):
         decision_data.get("btc_balance"),
         decision_data.get("krw_balance"),
         decision_data.get("btc_avg_buy_price"),
-        decision_data.get("btc_krw_price")
+        decision_data.get("btc_krw_price"),
+        decision_data.get("reflection", "")  # 초기에는 빈 문자열로 설정
     ))
     
     conn.commit()
     conn.close()
     logger.info("거래 결정이 데이터베이스에 저장되었습니다.")
+
+def get_recent_trades(days=7):
+    """최근 거래 결정들을 가져옵니다."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # 최근 7일간의 거래 결정 가져오기
+    seven_days_ago = (datetime.now() - timedelta(days=days)).isoformat()
+    cursor.execute("""
+    SELECT * FROM trades
+    WHERE timestamp > ?
+    ORDER BY timestamp DESC
+    """, (seven_days_ago,))
+
+    columns = [column[0] for column in cursor.description]
+    decisions = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    conn.close()
+    return decisions
+
+def analyze_and_reflect(recent_decisions, current_market_data):
+    """최근 거래 결정들을 분석하고 반성합니다."""
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    # 분석을 위한 프롬프트 작성
+    prompt = f"""
+최근 7일간의 거래 결정과 현재 시장 상황을 분석하고 반성해주세요. 다음 정보를 고려하세요:
+
+1. 최근 거래 결정:
+{json.dumps(recent_decisions, indent=2)}
+
+2. 현재 시장 상황:
+{json.dumps(current_market_data, indent=2)}
+
+다음 질문에 답해주세요:
+1. 최근 거래 결정들이 적절했는지 평가해주세요.
+2. 어떤 점에서 개선이 필요한가요?
+3. 현재 시장 상황을 고려할 때, 앞으로 어떤 전략을 취해야 할까요?
+4. 이전의 분석과 비교하여 어떤 점이 개선되었고, 어떤 점이 여전히 부족한가요?
+
+반성 일기 형식으로 작성해주세요.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-2024-08-06",
+            messages=[
+                {"role": "system", "content": "당신은 전문적인 암호화폐 트레이더입니다. 거래 결정을 분석하고 개선점을 제시하는 역할을 합니다."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=1000
+        )
+        reflection = response.choices[0].message.content
+        return reflection
+    except Exception as e:
+        logger.error(f"GPT-4 API 요청 중 오류 발생: {e}")
+        return "반성 분석 생성 실패"
+
+def update_trading_strategy(reflection):
+    """반성을 바탕으로 거래 전략을 업데이트합니다."""
+    # 이 함수에서는 반성 내용을 바탕으로 거래 전략을 조정할 수 있습니다.
+    # 예를 들어, 특정 키워드나 제안사항을 추출하여 전략 파라미터를 조정할 수 있습니다.
+    # 현재는 로깅만 수행하지만, 필요에 따라 실제 전략 수정 로직을 구현할 수 있습니다.
+    logger.info("반성을 바탕으로 거래 전략 업데이트 검토:")
+    logger.info(reflection)
 
 def get_fear_and_greed_index():
     import requests
@@ -277,7 +343,7 @@ def get_full_transcript(video_id):
         logger.error(f"유튜브 자막 가져오기 실패 (video_id: {video_id}): {e}")
         return None
 
-def ai_trading():
+def ai_trading_with_reflection():
     access = os.getenv("UPBIT_ACCESS_KEY")
     secret = os.getenv("UPBIT_SECRET_KEY")
     client = OpenAI(api_key=os.getenv(key="OPENAI_API_KEY"))
@@ -638,10 +704,36 @@ def ai_trading():
         print("percentage:", result_json['percentage'])
         print("reason(알 수 없는 결정입니다):", result_json['decision'])
 
+    # 거래 결정 후 반성 및 개선 과정 추가
+    recent_decisions = get_recent_trades()
+    current_market_data = {
+        "btc_price": pyupbit.get_current_price("KRW-BTC"),
+        "market_trend": "bullish",  # 이 부분은 실제 시장 분석 결과로 대체해야 합니다
+        "volume": pyupbit.get_ohlcv("KRW-BTC", count=1)['volume'].iloc[0]
+    }
+    
+    reflection = analyze_and_reflect(recent_decisions, current_market_data)
+    
+    # 반성 내용을 데이터베이스에 저장
+    latest_decision = recent_decisions[0] if recent_decisions else None
+    if latest_decision:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("""
+        UPDATE trades
+        SET reflection = ?
+        WHERE id = ?
+        """, (reflection, latest_decision['id']))
+        conn.commit()
+        conn.close()
+    
+    # 거래 전략 업데이트
+    update_trading_strategy(reflection)
+
 if __name__ == "__main__":
     # 데이터베이스 초기화
     init_db()
     
     while True:
-        ai_trading()
+        ai_trading_with_reflection()
         time.sleep(300)  # 5분마다 실행
