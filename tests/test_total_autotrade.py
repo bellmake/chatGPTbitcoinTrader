@@ -233,7 +233,7 @@ def capture_chart_screenshots():
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
-    service = Service('/usr/local/bin/chromedriver')  # Specify the path to
+    service = Service('/usr/bin/chromedriver')  # Specify the path to
     # Initialize the WebDriver with the specified options
     driver = webdriver.Chrome(service=service, options=chrome_options)
 
