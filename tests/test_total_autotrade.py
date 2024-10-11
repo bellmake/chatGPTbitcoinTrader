@@ -216,15 +216,26 @@ def get_latest_news_headlines():
         return None
 
 def capture_chart_screenshots():
+    # local 용도
+    # # 크롬 옵션 설정
+    # chrome_options = Options()
+    # chrome_options.add_argument("--start-maximized")
+    # chrome_options.add_argument("--headless") # 디버깅시 주석처리
+    # chrome_options.add_argument("--disable-gpu")
+    # chrome_options.add_argument("--no-sandbox")
+    # # 웹 드라이버 실행
+    # driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+
+    # EC2 서버용도
     # 크롬 옵션 설정
     chrome_options = Options()
-    chrome_options.add_argument("--start-maximized")
-    chrome_options.add_argument("--headless") # 디버깅시 주석처리
-    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--headless")  # 헤드리스 모드 사용
     chrome_options.add_argument("--no-sandbox")
-
-    # 웹 드라이버 실행
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    service = Service('/usr/local/bin/chromedriver')  # Specify the path to
+    # Initialize the WebDriver with the specified options
+    driver = webdriver.Chrome(service=service, options=chrome_options)
 
     # 업비트 차트 페이지로 이동
     url = "https://upbit.com/full_chart?code=CRIX.UPBIT.KRW-BTC"
