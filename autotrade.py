@@ -407,11 +407,19 @@ def ai_trading_with_reflection():
 
     # YouTube 자막 데이터 가져오기
     video_ids = ["3XbtEX3jUv4"]  # 워뇨띠님의 영상 ID
-    youtube_transcripts = []
-    for video_id in video_ids:
-        transcript = get_full_transcript(video_id)
-        if transcript:
-            youtube_transcripts.append(transcript)
+    youtube_transcripts = [] 
+    # for video_id in video_ids:
+    #     transcript = get_full_transcript(video_id)
+    #     if transcript:
+    #         f = open("strategy.txt", "w", encoding="utf-8")
+    #         f.write(transcript)
+    #         f.close()
+    #         youtube_transcripts.append(transcript)
+
+    f = open("strategy.txt", "r", encoding="utf-8")
+    transcript = f.read()
+    f.close()
+    youtube_transcripts.append(transcript)
 
     # 워뇨띠님의 매매법을 시스템 메시지에 포함
     wonyotti_strategy = youtube_transcripts[0] if youtube_transcripts else "워뇨띠님의 매매법 데이터를 가져오지 못했습니다."
