@@ -287,16 +287,22 @@ def capture_chart_screenshots():
         # 볼린저 밴드 옵션 선택 및 스크린샷
         logger.info("볼린저 밴드 옵션 선택 중...")
         indicator_menu_xpath = '/html/body/div[1]/div[2]/div[3]/span/div/div/div[1]/div/div/cq-menu[3]'
+        print("1")
         indicator_menu = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, indicator_menu_xpath)))
+        print("2")
         indicator_menu.click()
-
+        print("3")
         bollinger_band_option_xpath = '/html/body/div[1]/div[2]/div[3]/span/div/div/div[1]/div/div/cq-menu[3]/cq-menu-dropdown/cq-scroll/cq-studies/cq-studies-content/cq-item[15]'
         bollinger_band_option = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, bollinger_band_option_xpath)))
+        print("4")
         bollinger_band_option.click()
+        print("5")
 
         time.sleep(1)
         screenshot = driver.get_screenshot_as_png()
+        print("6")
         screenshots['bollinger'] = base64.b64encode(screenshot).decode('utf-8')
+        print("7")
 
         # 스크린샷 이미지를 파일로 저장
         screenshot_image = Image.open(io.BytesIO(screenshot))
